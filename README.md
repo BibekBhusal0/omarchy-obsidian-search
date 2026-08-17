@@ -2,6 +2,8 @@
 
 A beautiful [Obsidian](https://obsidian.md/) vault search menu. Type to filter notes with fuzzy ranking, open one with Enter, or create a new note when nothing matches.
 
+![Obsidian search Demo](demo.gif)
+
 ## Features
 
 - Fuzzy search across your vault, ranked by relevance

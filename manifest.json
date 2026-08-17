@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bibek.obsidian-search",
   "name": "Obsidian Search",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Bibek Bhusal",
   "description": "Search and open Obsidian notes from the Omarchy shell with fuzzy ranking, plus bases and canvas support and creating a new note when nothing matches.",
   "homepage": "https://github.com/BibekBhusal0/omarchy-obsidian-search",
