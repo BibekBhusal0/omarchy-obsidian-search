@@ -2,8 +2,6 @@
 
 A beautiful [Obsidian](https://obsidian.md/) vault search menu. Type to filter notes with fuzzy ranking, open one with Enter, or create a new note when nothing matches.
 
-![Obsidian search Demo](demo.gif)
-
 ![Obsidian Search preview](preview.png)
 
 ## Features
@@ -23,6 +21,10 @@ A beautiful [Obsidian](https://obsidian.md/) vault search menu. Type to filter n
 ```bash
 omarchy plugin add https://github.com/BibekBhusal0/omarchy-obsidian-search.git --enable
 ```
+
+## Demo
+
+![Obsidian search Demo](demo.gif)
 
 ## Usage
 
