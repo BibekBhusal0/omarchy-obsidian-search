@@ -4,6 +4,8 @@ A beautiful [Obsidian](https://obsidian.md/) vault search menu. Type to filter n
 
 ![Obsidian search Demo](demo.gif)
 
+![Obsidian Search preview](preview.png)
+
 ## Features
 
 - Fuzzy search across your vault, ranked by relevance
@@ -53,3 +55,13 @@ omarchy plugin remove bibek.obsidian-search
 Fuzzy matching uses [`FuzzySearch.js`](FuzzySearch.js), adapted from [omarchy-raindrop-bookmarks](https://github.com/treramey/omarchy-raindrop-bookmarks) by Trevor Ramey, licensed under the MIT License.
 
 This plugin is licensed under the [MIT License](LICENSE).
+
+## Others
+
+Here are my other Omarchy plugins:
+
+- [Focusd](https://github.com/BibekBhusal0/omarchy-focusd) - pomodoro timer with streak, history and daily goal
+- [Readest](https://github.com/BibekBhusal0/omarchy-readest) - fuzzy-search your Readest library
+- [Youtube Video Downloader](https://github.com/BibekBhusal0/omarchy-ytdl) - video downloads with progress and history
+
+Please give a star if you find them useful!

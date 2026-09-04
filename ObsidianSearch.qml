@@ -18,8 +18,7 @@ Item {
   property var items: []
   property var allItems: []
   property string vaultName: ""
-  property string searchScript: root.manifest && root.manifest.__sourceDir
-    ? root.manifest.__sourceDir + "/search.sh" : ""
+  property string searchScript: root.manifest && root.manifest.__sourceDir ? root.manifest.__sourceDir + "/search.sh" : ""
 
   // Shares the [menu] surface tokens so themes style it like the menu.
   property color background: Color.menu.background
@@ -40,166 +39,191 @@ Item {
   property int searchSerial: 0
 
   function open(payloadJson) {
-    root.opened = true
-    root.filterText = ""
-    root.selectedIndex = 0
-    root.cursorActive = true
-    root.disarmPointer()
-    if (!root.allItems.length) root.runSearch()
-    else root.filter()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    root.opened = true;
+    root.filterText = "";
+    root.selectedIndex = 0;
+    root.cursorActive = true;
+    root.disarmPointer();
+    if (!root.allItems.length)
+      root.runSearch();
+    else
+      root.filter();
+    Qt.callLater(function () {
+        keyCatcher.forceActiveFocus();
+      });
   }
 
   function close() {
-    root.opened = false
+    root.opened = false;
   }
 
   function toggle() {
-    if (root.opened) root.close()
-    else root.open("{}")
+    if (root.opened)
+      root.close();
+    else
+      root.open("{}");
   }
 
   function runSearch() {
-    root.searchSerial += 1
-    searchProc.serial = root.searchSerial
-    searchProc.collected = ""
-    var args = [root.searchScript]
-    var vaultPath = root.pluginSetting("vaultPath")
-    if (vaultPath) args.push(vaultPath)
-    searchProc.command = args
-    searchProc.running = true
+    root.searchSerial += 1;
+    searchProc.serial = root.searchSerial;
+    searchProc.collected = "";
+    var args = [root.searchScript];
+    var vaultPath = root.pluginSetting("vaultPath");
+    if (vaultPath)
+      args.push(vaultPath);
+    searchProc.command = args;
+    searchProc.running = true;
   }
 
   function pluginSetting(name) {
-    if (!root.shell || !root.shell.shellConfig) return ""
-    var plugins = root.shell.shellConfig.plugins
-    if (!Array.isArray(plugins)) return ""
-    var manifest = root.manifest
-    var id = manifest && manifest.id ? manifest.id : ""
+    if (!root.shell || !root.shell.shellConfig)
+      return "";
+    var plugins = root.shell.shellConfig.plugins;
+    if (!Array.isArray(plugins))
+      return "";
+    var manifest = root.manifest;
+    var id = manifest && manifest.id ? manifest.id : "";
     for (var i = 0; i < plugins.length; i++) {
       if (plugins[i] && plugins[i].id === id) {
-        var value = plugins[i][name]
-        return value === undefined || value === null ? "" : String(value)
+        var value = plugins[i][name];
+        return value === undefined || value === null ? "" : String(value);
       }
     }
-    return ""
+    return "";
   }
 
   function parseResults(raw) {
-    var lines = String(raw || "").split("\n")
-    var rows = []
+    var lines = String(raw || "").split("\n");
+    var rows = [];
     for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim()
-      if (!line) continue
+      var line = lines[i].trim();
+      if (!line)
+        continue;
       if (line.indexOf("#vault\t") === 0) {
-        if (!root.vaultName) root.vaultName = line.slice("#vault\t".length)
-        continue
+        if (!root.vaultName)
+          root.vaultName = line.slice("#vault\t".length);
+        continue;
       }
-      var parts = line.split("\t")
-      if (parts.length < 4) continue
-      var path = parts[2]
-      var icon = "󰠮"
-      if (parts[1] === "Canvas") icon = "󰇞"
-      else if (parts[1] === "Base") icon = ""
+      var parts = line.split("\t");
+      if (parts.length < 4)
+        continue;
+      var path = parts[2];
+      var icon = "󰠮";
+      if (parts[1] === "Canvas")
+        icon = "󰇞";
+      else if (parts[1] === "Base")
+        icon = "";
       rows.push({
-        icon: icon,
-        label: parts[0],
-        detail: parts[1],
-        action: parts[3],
-        title: parts[0],
-        domain: path,
-        link: parts[3]
-      })
+          "icon": icon,
+          "label": parts[0],
+          "detail": parts[1],
+          "action": parts[3],
+          "title": parts[0],
+          "domain": path,
+          "link": parts[3]
+        });
     }
-    return rows
+    return rows;
   }
 
   // Client-side fuzzy ranking on every keystroke; no per-key process spawn.
   function filter() {
-    var query = root.filterText.trim()
-    var shown = []
+    var query = root.filterText.trim();
+    var shown = [];
     if (!query) {
-      shown = root.allItems.slice()
+      shown = root.allItems.slice();
     } else {
-      shown = FuzzySearch.search(root.filterText, root.allItems)
+      shown = FuzzySearch.search(root.filterText, root.allItems);
       shown.unshift({
-        icon: "󱘒",
-        label: "Create new note - " + query,
-        detail: "Create '" + query + ".md' in " + root.vaultName,
-        action: "obsidian \"obsidian://new?vault=" + encodeURIComponent(root.vaultName) + "&name=" + encodeURIComponent(query) + "\"",
-        title: query,
-        domain: root.vaultName,
-        link: ""
-      })
+          "icon": "󱘒",
+          "label": "Create new note - " + query,
+          "detail": "Create '" + query + ".md' in " + root.vaultName,
+          "action": "obsidian \"obsidian://new?vault=" + encodeURIComponent(root.vaultName) + "&name=" + encodeURIComponent(query) + "\"",
+          "title": query,
+          "domain": root.vaultName,
+          "link": ""
+        });
     }
-    root.items = shown
-    root.rebuildDisplay()
+    root.items = shown;
+    root.rebuildDisplay();
   }
 
   function rebuildDisplay() {
-    displayModel.clear()
-    for (var j = 0; j < root.items.length; j++) displayModel.append(root.items[j])
-
-    if (displayModel.count === 0) selectedIndex = 0
-    else if (selectedIndex >= displayModel.count) selectedIndex = displayModel.count - 1
-    else if (selectedIndex < 0) selectedIndex = 0
-
-    Qt.callLater(function() {
-      if (displayModel.count > 0) resultList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
-    })
+    displayModel.clear();
+    for (var j = 0; j < root.items.length; j++)
+      displayModel.append(root.items[j]);
+    if (displayModel.count === 0)
+      selectedIndex = 0;
+    else if (selectedIndex >= displayModel.count)
+      selectedIndex = displayModel.count - 1;
+    else if (selectedIndex < 0)
+      selectedIndex = 0;
+    Qt.callLater(function () {
+        if (displayModel.count > 0)
+          resultList.positionViewAtIndex(root.selectedIndex, ListView.Contain);
+      });
   }
 
   function select(delta) {
-    if (displayModel.count === 0) return
-    root.disarmPointer()
+    if (displayModel.count === 0)
+      return;
+    root.disarmPointer();
     if (!cursorActive) {
-      cursorActive = true
-      selectedIndex = delta < 0 ? displayModel.count - 1 : 0
+      cursorActive = true;
+      selectedIndex = delta < 0 ? displayModel.count - 1 : 0;
     } else {
-      selectedIndex = (selectedIndex + delta + displayModel.count) % displayModel.count
+      selectedIndex = (selectedIndex + delta + displayModel.count) % displayModel.count;
     }
-    resultList.positionViewAtIndex(selectedIndex, ListView.Contain)
+    resultList.positionViewAtIndex(selectedIndex, ListView.Contain);
   }
 
   function setFilter(nextFilter) {
-    root.filterText = nextFilter
-    root.selectedIndex = 0
-    root.cursorActive = true
-    root.disarmPointer()
-    root.filter()
+    root.filterText = nextFilter;
+    root.selectedIndex = 0;
+    root.cursorActive = true;
+    root.disarmPointer();
+    root.filter();
   }
 
   function disarmPointer() {
-    pointerGate.reset()
+    pointerGate.reset();
   }
 
   function selectFromPointer(index, item, mouse) {
-    if (!pointerGate.moved(item, mouse)) return
-    root.cursorActive = true
-    root.selectedIndex = index
+    if (!pointerGate.moved(item, mouse))
+      return;
+    root.cursorActive = true;
+    root.selectedIndex = index;
   }
 
   function activateIndex(index) {
-    if (index < 0 || index >= displayModel.count) return
-    var row = displayModel.get(index)
-    var action = row.action
-    root.opened = false
-    Util.execDetached(action)
+    if (index < 0 || index >= displayModel.count)
+      return;
+    var row = displayModel.get(index);
+    var action = row.action;
+    root.opened = false;
+    Util.execDetached(action);
   }
 
-  ListModel { id: displayModel }
+  ListModel {
+    id: displayModel
+  }
 
   Process {
     id: searchProc
     property string collected: ""
     property int serial: 0
     stdout: SplitParser {
-      onRead: function(data) { searchProc.collected += data + "\n" }
+      onRead: function (data) {
+        searchProc.collected += data + "\n";
+      }
     }
     onExited: {
-      if (searchProc.serial !== root.searchSerial) return
-      root.allItems = root.parseResults(searchProc.collected)
-      root.filter()
+      if (searchProc.serial !== root.searchSerial)
+        return;
+      root.allItems = root.parseResults(searchProc.collected);
+      root.filter();
     }
   }
 
@@ -211,7 +235,12 @@ Item {
   PanelWindow {
     id: panel
     visible: root.opened
-    anchors { top: true; bottom: true; left: true; right: true }
+    anchors {
+      top: true
+      bottom: true
+      left: true
+      right: true
+    }
     color: "transparent"
     WlrLayershell.namespace: "obsidian-search"
     WlrLayershell.layer: WlrLayer.Overlay
@@ -238,7 +267,11 @@ Item {
       borderSpec: root.borderSpec
       padding: root.contentMargin
 
-      MouseArea { anchors.fill: parent; onClicked: {} }
+      MouseArea {
+        anchors.fill: parent
+        onClicked: {
+        }
+      }
 
       Item {
         id: keyCatcher
@@ -246,33 +279,37 @@ Item {
         focus: true
 
         Keys.priority: Keys.BeforeItem
-        Keys.onPressed: function(event) {
+        Keys.onPressed: function (event) {
           if (event.key === Qt.Key_Escape) {
-            if (root.filterText) root.setFilter("")
-            else root.close()
-            event.accepted = true
+            if (root.filterText)
+              root.setFilter("");
+            else
+              root.close();
+            event.accepted = true;
           } else if (Util.editsFilter(event, root.filterText)) {
-            root.setFilter(Util.editedFilter(event, root.filterText))
-            event.accepted = true
+            root.setFilter(Util.editedFilter(event, root.filterText));
+            event.accepted = true;
           } else if (event.key === Qt.Key_Up) {
-            root.select(-1)
-            event.accepted = true
+            root.select(-1);
+            event.accepted = true;
           } else if (event.key === Qt.Key_Down) {
-            root.select(1)
-            event.accepted = true
+            root.select(1);
+            event.accepted = true;
           } else if (event.key === Qt.Key_PageUp) {
-            root.select(-6)
-            event.accepted = true
+            root.select(-6);
+            event.accepted = true;
           } else if (event.key === Qt.Key_PageDown) {
-            root.select(6)
-            event.accepted = true
+            root.select(6);
+            event.accepted = true;
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Right) {
-            if (root.cursorActive) root.activateIndex(root.selectedIndex)
-            else if (displayModel.count > 0) root.cursorActive = true
-            event.accepted = true
+            if (root.cursorActive)
+              root.activateIndex(root.selectedIndex);
+            else if (displayModel.count > 0)
+              root.cursorActive = true;
+            event.accepted = true;
           } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127) {
-            root.setFilter(root.filterText + event.text)
-            event.accepted = true
+            root.setFilter(root.filterText + event.text);
+            event.accepted = true;
           }
         }
 
@@ -373,13 +410,13 @@ Item {
                   anchors.fill: parent
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
-                  onPositionChanged: function(mouse) {
-                    root.selectFromPointer(row.index, row, mouse)
+                  onPositionChanged: function (mouse) {
+                    root.selectFromPointer(row.index, row, mouse);
                   }
                   onClicked: {
-                    root.cursorActive = true
-                    root.selectedIndex = row.index
-                    root.activateIndex(row.index)
+                    root.cursorActive = true;
+                    root.selectedIndex = row.index;
+                    root.activateIndex(row.index);
                   }
                 }
               }
