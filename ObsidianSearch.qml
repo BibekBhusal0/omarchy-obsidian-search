@@ -108,6 +108,9 @@ Item {
       var parts = line.split("\t");
       if (parts.length < 4)
         continue;
+      var uri = parts[parts.length - 1];
+      if (uri.indexOf("obsidian://") !== 0)
+        continue;
       var path = parts[2];
       var icon = "󰠮";
       if (parts[1] === "Canvas")
@@ -118,10 +121,10 @@ Item {
           "icon": icon,
           "label": parts[0],
           "detail": parts[1],
-          "action": parts[3],
+          "action": uri,
           "title": parts[0],
           "domain": path,
-          "link": parts[3]
+          "link": uri
         });
     }
     return rows;
@@ -139,7 +142,7 @@ Item {
           "icon": "󱘒",
           "label": "Create new note - " + query,
           "detail": "Create '" + query + ".md' in " + root.vaultName,
-          "action": "obsidian \"obsidian://new?vault=" + encodeURIComponent(root.vaultName) + "&name=" + encodeURIComponent(query) + "\"",
+          "action": "obsidian://new?vault=" + encodeURIComponent(root.vaultName) + "&name=" + encodeURIComponent(query),
           "title": query,
           "domain": root.vaultName,
           "link": ""
@@ -203,7 +206,7 @@ Item {
     var row = displayModel.get(index);
     var action = row.action;
     root.opened = false;
-    Util.execDetached(action);
+    Util.execArgv(["obsidian", action]);
   }
 
   ListModel {

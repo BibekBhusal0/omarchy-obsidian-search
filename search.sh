@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Omarchy obsidian-search plugin: list searchable vault entries.
 # The first line carries the vault name (prefixed with #vault\t), then one
-# tab-delimited row per entry: Name \t Path \t Action.
+# tab-delimited row per entry: Name \t Type \t Path \t URI.
 # Filtering happens client-side (FuzzySearch.js), so every entry is emitted.
+#
+# The URI is the only script-generated field. It is URL-encoded, so it never
+# contains literal tabs or newlines, and the client launches it with
+# Util.execArgv (no shell). Display fields are stripped of tabs so a
+# filename can never shift columns into the URI field.
 #
 # Usage: search.sh [VAULT_PATH]
 # The vault path may be given as an argument; otherwise it is auto-detected
@@ -27,8 +32,11 @@ url_encode() {
   printf '%s' "$1" | jq -sRr @uri
 }
 
-fd_cmd=(fd -e md -e canvas -e base --type file --strip-cwd-prefix --base-directory="$vault_path")
-while IFS= read -r relative_path; do
+fd_cmd=(fd -0 -e md -e canvas -e base --type file --strip-cwd-prefix --base-directory="$vault_path")
+while IFS= read -r -d '' relative_path; do
+  case "$relative_path" in
+  *$'\n'* | *$'\r'*) continue ;;
+  esac
   path_lower="${relative_path,,}"
   [[ "$path_lower" != *daily* && "$path_lower" != *template* ]] || continue
 
@@ -44,10 +52,14 @@ while IFS= read -r relative_path; do
   clean_name="${relative_path%.md}"
   clean_name="${clean_name%.canvas}"
   clean_name="${clean_name%.base}"
+  clean_name="${clean_name//$'\t'/ }"
+  clean_name="${clean_name//$'\r'/}"
+  display_path="${relative_path//$'\t'/ }"
+  display_path="${display_path//$'\r'/}"
 
   printf '%s\t%s\t%s\t%s\n' \
     "$clean_name" \
     "$subtext" \
-    "$relative_path" \
-    "obsidian \"$uri\""
+    "$display_path" \
+    "$uri"
 done < <("${fd_cmd[@]}")
