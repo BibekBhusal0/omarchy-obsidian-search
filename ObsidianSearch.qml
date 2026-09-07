@@ -10,6 +10,7 @@ Item {
   id: root
 
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
+  property var shell: null
   property var manifest: null
   property bool opened: false
   property string filterText: ""
@@ -18,6 +19,10 @@ Item {
   property var items: []
   property var allItems: []
   property string vaultName: ""
+  property string vaultPathResolved: ""
+  property bool dailyEnabled: false
+  property var pendingLaunch: []
+  property bool hasPendingLaunch: false
   property string searchScript: root.manifest && root.manifest.__sourceDir ? root.manifest.__sourceDir + "/search.sh" : ""
 
   // Shares the [menu] surface tokens so themes style it like the menu.
@@ -68,12 +73,27 @@ Item {
     root.searchSerial += 1;
     searchProc.serial = root.searchSerial;
     searchProc.collected = "";
+    root.dailyEnabled = false;
     var args = [root.searchScript];
     var vaultPath = root.pluginSetting("vaultPath");
     if (vaultPath)
       args.push(vaultPath);
+    args.push("--show-daily=" + (root.pluginSettingBool("showDailyNotes", true) ? "1" : "0"));
+    args.push("--show-templates=" + (root.pluginSettingBool("showTemplates", false) ? "1" : "0"));
     searchProc.command = args;
     searchProc.running = true;
+  }
+
+  function pluginSettingBool(name, fallback) {
+    var raw = root.pluginSetting(name);
+    if (raw === "")
+      return fallback;
+    var lowered = raw.toLowerCase();
+    if (lowered === "true" || lowered === "1" || lowered === "yes")
+      return true;
+    if (lowered === "false" || lowered === "0" || lowered === "no")
+      return false;
+    return fallback;
   }
 
   function pluginSetting(name) {
@@ -105,6 +125,14 @@ Item {
           root.vaultName = line.slice("#vault\t".length);
         continue;
       }
+      if (line.indexOf("#vaultpath\t") === 0) {
+        root.vaultPathResolved = line.slice("#vaultpath\t".length).trim();
+        continue;
+      }
+      if (line === "#daily" || line.indexOf("#daily\t") === 0) {
+        root.dailyEnabled = true;
+        continue;
+      }
       var parts = line.split("\t");
       if (parts.length < 4)
         continue;
@@ -112,44 +140,80 @@ Item {
       if (uri.indexOf("obsidian://") !== 0)
         continue;
       var path = parts[2];
+      var kind = parts[1];
       var icon = "󰠮";
-      if (parts[1] === "Canvas")
+      if (kind === "Canvas")
         icon = "󰇞";
-      else if (parts[1] === "Base")
+      else if (kind === "Base")
         icon = "";
+      else if (kind === "Daily Note")
+        icon = "";
+      else if (kind === "Template")
+        icon = "󱘒";
       rows.push({
           "icon": icon,
           "label": parts[0],
-          "detail": parts[1],
+          "detail": kind,
           "action": uri,
           "title": parts[0],
           "domain": path,
-          "link": uri
+          "link": uri,
+          "kind": kind,
+          "rel": path
         });
     }
     return rows;
   }
 
   // Client-side fuzzy ranking on every keystroke; no per-key process spawn.
+  // With an empty query the first row pins today's daily note (open or
+  // create); any other query keeps the previous behavior plus a create row.
   function filter() {
     var query = root.filterText.trim();
     var shown = [];
     if (!query) {
       shown = root.allItems.slice();
+      if (root.dailyEnabled)
+        shown.unshift(root.dailyRow());
     } else {
       shown = FuzzySearch.search(root.filterText, root.allItems);
-      shown.unshift({
+      if (root.matchesDaily(query))
+        shown.unshift(root.dailyRow());
+      shown.push({
           "icon": "󱘒",
           "label": "Create new note - " + query,
           "detail": "Create '" + query + ".md' in " + root.vaultName,
           "action": "obsidian://new?vault=" + encodeURIComponent(root.vaultName) + "&name=" + encodeURIComponent(query),
           "title": query,
           "domain": root.vaultName,
-          "link": ""
+          "link": "",
+          "kind": "New Note",
+          "rel": query + ".md"
         });
     }
     root.items = shown;
     root.rebuildDisplay();
+  }
+
+  function matchesDaily(query) {
+    if (!root.dailyEnabled)
+      return false;
+    var q = query.trim().toLowerCase();
+    return q.indexOf("daily") !== -1 || q.indexOf("today") !== -1;
+  }
+
+  function dailyRow() {
+    return {
+      "icon": "",
+      "label": "Today's daily note",
+      "detail": "Open in " + root.vaultName,
+      "action": "obsidian://daily?vault=" + encodeURIComponent(root.vaultName),
+      "title": "Today's daily note",
+      "domain": root.vaultName,
+      "link": "",
+      "kind": "Daily Pin",
+      "rel": ""
+    };
   }
 
   function rebuildDisplay() {
@@ -200,13 +264,58 @@ Item {
     root.selectedIndex = index;
   }
 
-  function activateIndex(index) {
+  function absPathFor(rel) {
+    if (!rel)
+      return "";
+    if (rel.charAt(0) === "/")
+      return rel;
+    var base = root.vaultPathResolved;
+    if (!base) {
+      base = root.pluginSetting("vaultPath");
+      if (base.indexOf("~/") === 0)
+        base = Quickshell.env("HOME") + base.slice(1);
+    }
+    if (!base)
+      return "";
+    return base.replace(/\/$/, "") + "/" + rel;
+  }
+
+  function launchArgvFor(mode, row) {
+    var kind = row.kind || "Note";
+    var forcedObsidian = kind === "Canvas" || kind === "Base" || kind === "Daily Note" || kind === "Daily Pin" || kind === "Template";
+    var opener = mode === "omawrite" ? "omawrite" : mode === "neovim" ? "nvim" : root.pluginSetting("opener") || "obsidian";
+    var lowered = String(opener).toLowerCase();
+    if (!forcedObsidian) {
+      if (lowered === "omawrite")
+        return ["omawrite", root.absPathFor(row.rel)];
+      if (lowered === "neovim" || lowered === "nvim" || lowered === "vim")
+        return ["omarchy", "launch", "tui", "--app-id=nvim-obsidian", "nvim", root.absPathFor(row.rel)];
+      if (lowered !== "obsidian")
+        return [String(opener), root.absPathFor(row.rel)];
+    }
+    return ["obsidian", row.action];
+  }
+
+  function activateIndex(index, mode) {
     if (index < 0 || index >= displayModel.count)
       return;
     var row = displayModel.get(index);
-    var action = row.action;
+    var kind = row.kind || "Note";
+    var argv = root.launchArgvFor(mode || "", row);
+    var needsFile = kind === "New Note" && argv[0] !== "obsidian";
     root.opened = false;
-    Util.execArgv(["obsidian", action]);
+    if (needsFile) {
+      var abs = root.absPathFor(row.rel);
+      if (!abs)
+        return;
+      root.pendingLaunch = argv;
+      root.hasPendingLaunch = true;
+      var dir = abs.slice(0, abs.lastIndexOf("/"));
+      ensureProc.command = ["bash", "-lc", 'mkdir -p "$1" && [ -e "$2" ] || touch "$2"', "bash", dir, abs];
+      ensureProc.running = true;
+      return;
+    }
+    Util.execArgv(argv);
   }
 
   ListModel {
@@ -228,6 +337,23 @@ Item {
       root.allItems = root.parseResults(searchProc.collected);
       root.filter();
     }
+  }
+
+  // Creates the parent dir plus an empty file for daily pins and new notes
+  // opened in an external editor, then runs the pending launch.
+  Process {
+    id: ensureProc
+    onExited: {
+      if (!root.hasPendingLaunch)
+        return;
+      root.hasPendingLaunch = false;
+      launchProc.command = root.pendingLaunch;
+      launchProc.running = true;
+    }
+  }
+
+  Process {
+    id: launchProc
   }
 
   PointerMoveGate {
@@ -298,11 +424,29 @@ Item {
           } else if (event.key === Qt.Key_Down) {
             root.select(1);
             event.accepted = true;
+          } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_K) {
+            root.select(-1);
+            event.accepted = true;
+          } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_J) {
+            root.select(1);
+            event.accepted = true;
           } else if (event.key === Qt.Key_PageUp) {
             root.select(-6);
             event.accepted = true;
           } else if (event.key === Qt.Key_PageDown) {
             root.select(6);
+            event.accepted = true;
+          } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_O) {
+            if (root.cursorActive)
+              root.activateIndex(root.selectedIndex, "omawrite");
+            else if (displayModel.count > 0)
+              root.cursorActive = true;
+            event.accepted = true;
+          } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_N) {
+            if (root.cursorActive)
+              root.activateIndex(root.selectedIndex, "neovim");
+            else if (displayModel.count > 0)
+              root.cursorActive = true;
             event.accepted = true;
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Right) {
             if (root.cursorActive)
@@ -310,7 +454,7 @@ Item {
             else if (displayModel.count > 0)
               root.cursorActive = true;
             event.accepted = true;
-          } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127) {
+          } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
             root.setFilter(root.filterText + event.text);
             event.accepted = true;
           }
