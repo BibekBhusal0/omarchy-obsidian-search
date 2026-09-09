@@ -56,18 +56,15 @@ So Alt+O and Alt+N only ever apply to regular notes. Creating a missing note als
 
 The vault is auto-detected from `~/.config/obsidian/obsidian.json` by default. Daily notes are shown by default: the plugin reads the daily folder from `.obsidian/daily-notes.json` (or the periodic-notes plugin when it manages daily notes), and only hides that exact folder when you opt out. The today's-note pin needs the daily-notes (or periodic-notes daily) plugin enabled in the vault; it opens via `obsidian://daily`, so no filename or folder setup is needed for it.
 
-Override settings under the plugin entry in `~/.config/omarchy/shell.json`:
+Override settings in `~/.config/omarchy/obsidian-search.json` (watched live, so edits apply instantly):
 
 ```json
-"plugins": [
-  {
-    "id": "bibek.obsidian-search",
-    "vaultPath": "/path/to/your/vault",
-    "showDailyNotes": true,
-    "showTemplates": false,
-    "opener": "obsidian"
-  }
-]
+{
+  "vaultPath": "/path/to/your/vault",
+  "showDailyNotes": true,
+  "showTemplates": false,
+  "opener": "obsidian"
+}
 ```
 
 - `vaultPath`: vault directory. Defaults to the first vault in the Obsidian config.
@@ -76,7 +73,7 @@ Override settings under the plugin entry in `~/.config/omarchy/shell.json`:
 - `opener`: how notes open with Enter. Default `"obsidian"`. Use `"omawrite"` to edit in omawrite, `"neovim"` (or `"nvim"`) to edit in Neovim inside a terminal, or any other command that takes a file path (for example `"code"` or `"xdg-open"`).
 
 ```json
-{ "id": "bibek.obsidian-search", "opener": "omawrite" }
+{ "vaultPath": "/path/to/your/vault", "opener": "omawrite" }
 ```
 
 ```json
@@ -102,5 +99,8 @@ Here are my other Omarchy plugins:
 - [Focusd](https://github.com/BibekBhusal0/omarchy-focusd) - pomodoro timer with streak, history and daily goal
 - [Readest](https://github.com/BibekBhusal0/omarchy-readest) - fuzzy-search your Readest library
 - [Youtube Video Downloader](https://github.com/BibekBhusal0/omarchy-ytdl) - video downloads with progress and history
+- [Better Lock](https://github.com/BibekBhusal0/omarchy-better-lock) - lock screen with date/time, media and power controls
+- [Better Media](https://github.com/BibekBhusal0/omarchy-better-media) - MPRIS now-playing with playback controls
+- [Better Menu](https://github.com/BibekBhusal0/omarchy-better-menu) - fuzzy menu with app grid, calculator and web search
 
 Please give a star if you find them useful!

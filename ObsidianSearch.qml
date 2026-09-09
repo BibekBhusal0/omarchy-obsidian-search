@@ -23,7 +23,7 @@ Item {
   property bool dailyEnabled: false
   property var pendingLaunch: []
   property bool hasPendingLaunch: false
-  property string searchScript: root.manifest && root.manifest.__sourceDir ? root.manifest.__sourceDir + "/search.sh" : ""
+  readonly property string searchScript: Qt.resolvedUrl("search.sh").toString().replace(/^file:\/\//, "")
 
   // Shares the [menu] surface tokens so themes style it like the menu.
   property color background: Color.menu.background
@@ -75,42 +75,44 @@ Item {
     searchProc.collected = "";
     root.dailyEnabled = false;
     var args = [root.searchScript];
-    var vaultPath = root.pluginSetting("vaultPath");
+    var vaultPath = root.cfg("vaultPath", "");
     if (vaultPath)
       args.push(vaultPath);
-    args.push("--show-daily=" + (root.pluginSettingBool("showDailyNotes", true) ? "1" : "0"));
-    args.push("--show-templates=" + (root.pluginSettingBool("showTemplates", false) ? "1" : "0"));
+    args.push("--show-daily=" + (root.cfgBool("showDailyNotes", true) ? "1" : "0"));
+    args.push("--show-templates=" + (root.cfgBool("showTemplates", false) ? "1" : "0"));
     searchProc.command = args;
     searchProc.running = true;
   }
 
-  function pluginSettingBool(name, fallback) {
-    var raw = root.pluginSetting(name);
-    if (raw === "")
-      return fallback;
-    var lowered = raw.toLowerCase();
-    if (lowered === "true" || lowered === "1" || lowered === "yes")
-      return true;
-    if (lowered === "false" || lowered === "0" || lowered === "no")
-      return false;
+  property var fileConfig: ({})
+  function parseFileConfig(raw) {
+    try {
+      var parsed = JSON.parse(String(raw || ""));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : ({});
+    } catch (e) { return ({}); }
+  }
+  function cfg(name, fallback) {
+    var value = root.fileConfig ? root.fileConfig[name] : undefined;
+    return value === undefined || value === null ? fallback : value;
+  }
+  function cfgBool(name, fallback) {
+    var raw = root.cfg(name, "");
+    if (raw === "") return fallback;
+    if (raw === true) return true;
+    if (raw === false) return false;
+    var lowered = String(raw).toLowerCase();
+    if (lowered === "true" || lowered === "1" || lowered === "yes") return true;
+    if (lowered === "false" || lowered === "0" || lowered === "no") return false;
     return fallback;
   }
-
-  function pluginSetting(name) {
-    if (!root.shell || !root.shell.shellConfig)
-      return "";
-    var plugins = root.shell.shellConfig.plugins;
-    if (!Array.isArray(plugins))
-      return "";
-    var manifest = root.manifest;
-    var id = manifest && manifest.id ? manifest.id : "";
-    for (var i = 0; i < plugins.length; i++) {
-      if (plugins[i] && plugins[i].id === id) {
-        var value = plugins[i][name];
-        return value === undefined || value === null ? "" : String(value);
-      }
-    }
-    return "";
+  FileView {
+    id: configFile
+    path: Quickshell.env("HOME") + "/.config/omarchy/obsidian-search.json"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.fileConfig = root.parseFileConfig(text())
+    onFileChanged: configFile.reload()
+    onLoadFailed: root.fileConfig = ({})
   }
 
   function parseResults(raw) {
@@ -271,7 +273,7 @@ Item {
       return rel;
     var base = root.vaultPathResolved;
     if (!base) {
-      base = root.pluginSetting("vaultPath");
+      base = root.cfg("vaultPath", "");
       if (base.indexOf("~/") === 0)
         base = Quickshell.env("HOME") + base.slice(1);
     }
@@ -283,7 +285,7 @@ Item {
   function launchArgvFor(mode, row) {
     var kind = row.kind || "Note";
     var forcedObsidian = kind === "Canvas" || kind === "Base" || kind === "Daily Note" || kind === "Daily Pin" || kind === "Template";
-    var opener = mode === "omawrite" ? "omawrite" : mode === "neovim" ? "nvim" : root.pluginSetting("opener") || "obsidian";
+    var opener = mode === "omawrite" ? "omawrite" : mode === "neovim" ? "nvim" : root.cfg("opener", "") || "obsidian";
     var lowered = String(opener).toLowerCase();
     if (!forcedObsidian) {
       if (lowered === "omawrite")
