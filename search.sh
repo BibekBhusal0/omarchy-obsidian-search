@@ -145,63 +145,37 @@ if [[ "$daily_enabled" -eq 1 ]]; then
   printf '#daily\n'
 fi
 
-url_encode() {
-  printf '%s' "$1" | jq -sRr @uri
-}
-
-is_under() {
-  local path="$1" dir="$2"
-  [[ -n "$dir" && "$path" == "$dir/"* ]]
-}
-
-fd_cmd=(fd -0 -e md -e canvas -e base --type file --strip-cwd-prefix --base-directory="$vault_path")
-while IFS= read -r -d '' relative_path; do
-  case "$relative_path" in
-  *$'\n'* | *$'\r'*) continue ;;
-  esac
-
-  in_daily=0
-  is_under "$relative_path" "$daily_dir" && in_daily=1
-  in_templates=0
-  is_under "$relative_path" "$templates_dir" && in_templates=1
-  if [[ -n "$daily_template" && "$relative_path" == "$daily_template"* ]]; then
-    in_templates=1
-  fi
-
-  if [[ "$in_daily" -eq 1 && "$show_daily" -eq 0 ]]; then
-    continue
-  fi
-  if [[ "$in_templates" -eq 1 && "$show_templates" -eq 0 ]]; then
-    continue
-  fi
-
-  encoded_file="$(url_encode "$relative_path")"
-  uri="obsidian://open?vault=$encoded_vault&file=$encoded_file"
-
-  subtext="Note"
-  case "$relative_path" in
-  *.canvas) subtext="Canvas" ;;
-  *.base) subtext="Base" ;;
-  *)
-    if [[ "$in_daily" -eq 1 ]]; then
-      subtext="Daily Note"
-    elif [[ "$in_templates" -eq 1 ]]; then
-      subtext="Template"
-    fi
-    ;;
-  esac
-
-  clean_name="${relative_path%.md}"
-  clean_name="${clean_name%.canvas}"
-  clean_name="${clean_name%.base}"
-  clean_name="${clean_name//$'\t'/ }"
-  clean_name="${clean_name//$'\r'/}"
-  display_path="${relative_path//$'\t'/ }"
-  display_path="${display_path//$'\r'/}"
-
-  printf '%s\t%s\t%s\t%s\n' \
-    "$clean_name" \
-    "$subtext" \
-    "$display_path" \
-    "$uri"
-done < <("${fd_cmd[@]}")
+# Single-pass listing: fd streams NUL-separated paths into one python3 process
+# that classifies and percent-encodes every row. The previous per-file
+# `jq -sRr @uri` spawn cost ~0.6s on a few hundred notes.
+export OBS_ENCODED_VAULT="$encoded_vault" OBS_DAILY_DIR="$daily_dir" OBS_TEMPLATES_DIR="$templates_dir" OBS_DAILY_TEMPLATE="$daily_template" OBS_SHOW_DAILY="$show_daily" OBS_SHOW_TEMPLATES="$show_templates"
+fd -0 -e md -e canvas -e base --type file --strip-cwd-prefix --base-directory="$vault_path" | python3 -c '
+import os, sys, urllib.parse
+evault = os.environ["OBS_ENCODED_VAULT"].encode()
+daily = os.environ["OBS_DAILY_DIR"].encode()
+tpl = os.environ["OBS_TEMPLATES_DIR"].encode()
+daily_tpl = os.environ["OBS_DAILY_TEMPLATE"].encode()
+show_daily = os.environ["OBS_SHOW_DAILY"] == "1"
+show_tpl = os.environ["OBS_SHOW_TEMPLATES"] == "1"
+def under(path, d):
+    return bool(d) and path.startswith(d + b"/")
+rows = []
+for raw in sys.stdin.buffer.read().split(b"\0"):
+    if not raw or b"\n" in raw or b"\r" in raw:
+        continue
+    in_daily = under(raw, daily)
+    in_tpl = under(raw, tpl) or (bool(daily_tpl) and raw.startswith(daily_tpl))
+    if (in_daily and not show_daily) or (in_tpl and not show_tpl):
+        continue
+    if raw.endswith(b".canvas"):
+        sub, name = b"Canvas", raw[:-7]
+    elif raw.endswith(b".base"):
+        sub, name = b"Base", raw[:-5]
+    else:
+        name = raw[:-3] if raw.endswith(b".md") else raw
+        sub = b"Daily Note" if in_daily else (b"Template" if in_tpl else b"Note")
+    uri = b"obsidian://open?vault=" + evault + b"&file=" + urllib.parse.quote_from_bytes(raw, safe=b"").encode()
+    disp = raw.replace(b"\t", b" ")
+    rows.append(b"\t".join([name.replace(b"\t", b" "), sub, disp, uri]))
+sys.stdout.buffer.write(b"\n".join(rows) + (b"\n" if rows else b""))
+'

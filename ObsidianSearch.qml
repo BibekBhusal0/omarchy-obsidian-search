@@ -21,6 +21,7 @@ Item {
   property string vaultName: ""
   property string vaultPathResolved: ""
   property bool dailyEnabled: false
+  property bool configReady: false
   property var pendingLaunch: []
   property bool hasPendingLaunch: false
   readonly property string searchScript: Qt.resolvedUrl("search.sh").toString().replace(/^file:\/\//, "")
@@ -49,10 +50,8 @@ Item {
     root.selectedIndex = 0;
     root.cursorActive = true;
     root.disarmPointer();
-    if (!root.allItems.length)
-      root.runSearch();
-    else
-      root.filter();
+    root.filter();
+    root.runSearch();
     Qt.callLater(function () {
         keyCatcher.forceActiveFocus();
       });
@@ -74,6 +73,8 @@ Item {
     searchProc.serial = root.searchSerial;
     searchProc.collected = "";
     root.dailyEnabled = false;
+    root.vaultName = "";
+    root.vaultPathResolved = "";
     var args = [root.searchScript];
     var vaultPath = root.cfg("vaultPath", "");
     if (vaultPath)
@@ -89,7 +90,9 @@ Item {
     try {
       var parsed = JSON.parse(String(raw || ""));
       return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : ({});
-    } catch (e) { return ({}); }
+    } catch (e) {
+      return ({});
+    }
   }
   function cfg(name, fallback) {
     var value = root.fileConfig ? root.fileConfig[name] : undefined;
@@ -97,12 +100,17 @@ Item {
   }
   function cfgBool(name, fallback) {
     var raw = root.cfg(name, "");
-    if (raw === "") return fallback;
-    if (raw === true) return true;
-    if (raw === false) return false;
+    if (raw === "")
+      return fallback;
+    if (raw === true)
+      return true;
+    if (raw === false)
+      return false;
     var lowered = String(raw).toLowerCase();
-    if (lowered === "true" || lowered === "1" || lowered === "yes") return true;
-    if (lowered === "false" || lowered === "0" || lowered === "no") return false;
+    if (lowered === "true" || lowered === "1" || lowered === "yes")
+      return true;
+    if (lowered === "false" || lowered === "0" || lowered === "no")
+      return false;
     return fallback;
   }
   FileView {
@@ -110,9 +118,25 @@ Item {
     path: Quickshell.env("HOME") + "/.config/omarchy/obsidian-search.json"
     watchChanges: true
     printErrors: false
-    onLoaded: root.fileConfig = root.parseFileConfig(text())
+    onLoaded: {
+      root.fileConfig = root.parseFileConfig(text());
+      root.configReady = true;
+      root.onConfigChanged();
+    }
     onFileChanged: configFile.reload()
-    onLoadFailed: root.fileConfig = ({})
+    onLoadFailed: {
+      root.fileConfig = ({});
+      root.configReady = true;
+      root.onConfigChanged();
+    }
+  }
+
+  // Re-lists with the new showDailyNotes/showTemplates flags once the config
+  // arrives or changes, and prewarms the cache at shell startup so the first
+  // open is instant. Cached rows stay visible until the fresh list lands.
+  function onConfigChanged() {
+    root.filter();
+    root.runSearch();
   }
 
   function parseResults(raw) {
@@ -123,8 +147,7 @@ Item {
       if (!line)
         continue;
       if (line.indexOf("#vault\t") === 0) {
-        if (!root.vaultName)
-          root.vaultName = line.slice("#vault\t".length);
+        root.vaultName = line.slice("#vault\t".length);
         continue;
       }
       if (line.indexOf("#vaultpath\t") === 0) {
@@ -172,6 +195,8 @@ Item {
   // create); any other query keeps the previous behavior plus a create row.
   function filter() {
     var query = root.filterText.trim();
+    var wantDaily = root.cfgBool("showDailyNotes", true);
+    var wantTemplates = root.cfgBool("showTemplates", false);
     var shown = [];
     if (!query) {
       shown = root.allItems.slice();
@@ -193,6 +218,13 @@ Item {
           "rel": query + ".md"
         });
     }
+    shown = shown.filter(function (row) {
+        if (row.kind === "Daily Note")
+          return wantDaily;
+        if (row.kind === "Template")
+          return wantTemplates;
+        return true;
+      });
     root.items = shown;
     root.rebuildDisplay();
   }
@@ -283,6 +315,8 @@ Item {
   }
 
   function launchArgvFor(mode, row) {
+    if (mode === "obsidian")
+      return ["obsidian", row.action];
     var kind = row.kind || "Note";
     var forcedObsidian = kind === "Canvas" || kind === "Base" || kind === "Daily Note" || kind === "Daily Pin" || kind === "Template";
     var opener = mode === "omawrite" ? "omawrite" : mode === "neovim" ? "nvim" : root.cfg("opener", "") || "obsidian";
@@ -426,10 +460,10 @@ Item {
           } else if (event.key === Qt.Key_Down) {
             root.select(1);
             event.accepted = true;
-          } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_K) {
+          } else if ((event.modifiers & Qt.ControlModifier) && (event.key === Qt.Key_K || event.key === Qt.Key_P)) {
             root.select(-1);
             event.accepted = true;
-          } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_J) {
+          } else if ((event.modifiers & Qt.ControlModifier) && (event.key === Qt.Key_J || event.key === Qt.Key_N)) {
             root.select(1);
             event.accepted = true;
           } else if (event.key === Qt.Key_PageUp) {
@@ -439,6 +473,12 @@ Item {
             root.select(6);
             event.accepted = true;
           } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_O) {
+            if (root.cursorActive)
+              root.activateIndex(root.selectedIndex, "obsidian");
+            else if (displayModel.count > 0)
+              root.cursorActive = true;
+            event.accepted = true;
+          } else if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_W) {
             if (root.cursorActive)
               root.activateIndex(root.selectedIndex, "omawrite");
             else if (displayModel.count > 0)
