@@ -25,6 +25,7 @@ Item {
   property var pendingLaunch: []
   property bool hasPendingLaunch: false
   readonly property string searchScript: Qt.resolvedUrl("search.sh").toString().replace(/^file:\/\//, "")
+  readonly property string ensureScript: Qt.resolvedUrl("ensure-note.sh").toString().replace(/^file:\/\//, "")
 
   // Shares the [menu] surface tokens so themes style it like the menu.
   property color background: Color.menu.background
@@ -212,17 +213,21 @@ Item {
       shown = FuzzySearch.search(root.filterText, root.allItems);
       if (root.matchesDaily(query))
         shown.unshift(root.dailyRow());
-      shown.push({
-          "icon": "󱘒",
-          "label": "Create new note - " + query,
-          "detail": "Create '" + query + ".md' in " + root.vaultName,
-          "action": "obsidian://new?vault=" + encodeURIComponent(root.vaultName) + "&name=" + encodeURIComponent(query),
-          "title": query,
-          "domain": root.vaultName,
-          "link": "",
-          "kind": "New Note",
-          "rel": query + ".md"
-        });
+      var newRel = root.safeNewNoteRel(query);
+      if (newRel) {
+        var newName = root.safeNameFor(newRel);
+        shown.push({
+            "icon": "󱘒",
+            "label": "Create new note - " + newName,
+            "detail": "Create '" + newRel + "' in " + root.vaultName,
+            "action": "obsidian://new?vault=" + encodeURIComponent(root.vaultName) + "&name=" + encodeURIComponent(newName),
+            "title": newName,
+            "domain": root.vaultName,
+            "link": "",
+            "kind": "New Note",
+            "rel": newRel
+          });
+      }
     }
     shown = shown.filter(function (row) {
         if (row.kind === "Daily Note")
@@ -304,20 +309,55 @@ Item {
     root.selectedIndex = index;
   }
 
-  function absPathFor(rel) {
-    if (!rel)
+  // Raw queries must never become paths. Subfolders ("a/b") stay allowed,
+  // everything else that could escape the vault yields no create row.
+  function isSafeRel(rel) {
+    var s = String(rel || "");
+    if (!s || s.length > 220 || s.charAt(0) === "/")
+      return false;
+    if (s.indexOf("\0") !== -1 || s.indexOf("\n") !== -1 || s.indexOf("\r") !== -1 || s.indexOf("\t") !== -1)
+      return false;
+    var parts = s.split("/");
+    for (var i = 0; i < parts.length; i++) {
+      var seg = parts[i];
+      if (!seg || seg === "." || seg === ".." || seg.length > 100)
+        return false;
+    }
+    return true;
+  }
+
+  function safeNewNoteRel(query) {
+    var q = String(query || "").trim();
+    if (!q || q.length > 200 || q.charAt(0) === "/")
       return "";
-    if (rel.charAt(0) === "/")
-      return rel;
+    var rel = q.slice(-3).toLowerCase() === ".md" ? q : q + ".md";
+    return root.isSafeRel(rel) ? rel : "";
+  }
+
+  function safeNameFor(rel) {
+    var s = String(rel || "");
+    return s.slice(-3).toLowerCase() === ".md" ? s.slice(0, -3) : s;
+  }
+
+  function vaultBase() {
     var base = root.vaultPathResolved;
     if (!base) {
       base = root.cfg("vaultPath", "");
       if (base.indexOf("~/") === 0)
         base = Quickshell.env("HOME") + base.slice(1);
     }
+    if (!base || base.charAt(0) !== "/")
+      return "";
+    return base.replace(/\/$/, "");
+  }
+
+  function absPathFor(rel) {
+    if (!root.isSafeRel(rel))
+      return "";
+    var base = root.vaultBase();
     if (!base)
       return "";
-    return base.replace(/\/$/, "") + "/" + rel;
+    return base + "/" + String(rel);
   }
 
   function launchArgvFor(mode, row) {
@@ -328,12 +368,15 @@ Item {
     var opener = mode === "omawrite" ? "omawrite" : mode === "neovim" ? "nvim" : root.cfg("opener", "") || "obsidian";
     var lowered = String(opener).toLowerCase();
     if (!forcedObsidian) {
+      var abs = root.absPathFor(row.rel);
+      if (!abs)
+        return [];
       if (lowered === "omawrite")
-        return ["omawrite", root.absPathFor(row.rel)];
+        return ["omawrite", abs];
       if (lowered === "neovim" || lowered === "nvim" || lowered === "vim")
-        return ["omarchy", "launch", "tui", "--app-id=nvim-obsidian", "nvim", root.absPathFor(row.rel)];
+        return ["omarchy", "launch", "tui", "--app-id=nvim-obsidian", "nvim", abs];
       if (lowered !== "obsidian")
-        return [String(opener), root.absPathFor(row.rel)];
+        return [String(opener), abs];
     }
     return ["obsidian", row.action];
   }
@@ -344,16 +387,21 @@ Item {
     var row = displayModel.get(index);
     var kind = row.kind || "Note";
     var argv = root.launchArgvFor(mode || "", row);
+    if (!argv || argv.length === 0)
+      return;
     var needsFile = kind === "New Note" && argv[0] !== "obsidian";
     root.opened = false;
     if (needsFile) {
-      var abs = root.absPathFor(row.rel);
-      if (!abs)
+      var base = root.vaultBase();
+      var rel = String(row.rel || "");
+      if (!base || !root.isSafeRel(rel))
+        return;
+      if (ensureProc.running)
         return;
       root.pendingLaunch = argv;
       root.hasPendingLaunch = true;
-      var dir = abs.slice(0, abs.lastIndexOf("/"));
-      ensureProc.command = ["bash", "-lc", 'mkdir -p "$1" && [ -e "$2" ] || touch "$2"', "bash", dir, abs];
+      ensureProc.collected = "";
+      ensureProc.command = [root.ensureScript, base, rel];
       ensureProc.running = true;
       return;
     }
@@ -385,14 +433,24 @@ Item {
     }
   }
 
-  // Creates the parent dir plus an empty file for daily pins and new notes
-  // opened in an external editor, then runs the pending launch.
+  // ensure-note.sh proves the canonical destination stays beneath the
+  // canonical vault root before mkdir/touch. Launch only on its success.
   Process {
     id: ensureProc
-    onExited: {
+    property string collected: ""
+    stdout: SplitParser {
+      onRead: function (data) {
+        ensureProc.collected += data + "\n";
+      }
+    }
+    onExited: function (exitCode) {
+      var output = String(ensureProc.collected || "").trim();
+      ensureProc.collected = "";
       if (!root.hasPendingLaunch)
         return;
       root.hasPendingLaunch = false;
+      if (exitCode !== 0 || !output)
+        return;
       launchProc.command = root.pendingLaunch;
       launchProc.running = true;
     }
