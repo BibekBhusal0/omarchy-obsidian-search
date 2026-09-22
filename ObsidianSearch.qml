@@ -173,6 +173,20 @@ Item {
         continue;
       var path = parts[2];
       var kind = parts[1];
+      var aliases = [];
+      if (parts.length >= 5) {
+        try {
+          var parsed = JSON.parse(parts[3]);
+          if (Array.isArray(parsed)) {
+            for (var a = 0; a < parsed.length && aliases.length < 20; a++) {
+              var alias = String(parsed[a] || "").replace(/\t/g, " ").trim().substring(0, 120);
+              if (alias && aliases.indexOf(alias) === -1)
+                aliases.push(alias);
+            }
+          }
+        } catch (e) {
+        }
+      }
       var icon = "󰠮";
       if (kind === "Canvas")
         icon = "󰇞";
@@ -182,13 +196,16 @@ Item {
         icon = "";
       else if (kind === "Template")
         icon = "󱘒";
+      var aliasText = aliases.join(", ").substring(0, 256);
       rows.push({
           "icon": icon,
           "label": parts[0],
-          "detail": kind,
+          "detail": aliasText ? kind + " · " + aliasText : kind,
           "action": uri,
           "title": parts[0],
           "domain": path,
+          "tags": aliases,
+          "aliases": aliases,
           "link": uri,
           "kind": kind,
           "rel": path

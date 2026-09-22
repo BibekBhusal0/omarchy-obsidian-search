@@ -56,8 +56,8 @@ function scoreBookmark(query, bookmark) {
   if (!tokens.length) return 1;
   var fields = [
     { text: bookmark.title || "", weight: 5 },
+    { text: (bookmark.tags || []).join(" "), weight: 4 },
     { text: bookmark.domain || "", weight: 3 },
-    { text: (bookmark.tags || []).join(" "), weight: 2 },
     { text: bookmark.link || "", weight: 1 },
   ];
   var total = 0;

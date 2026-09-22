@@ -7,6 +7,7 @@ A beautiful [Obsidian](https://obsidian.md/) vault search menu. Type to filter n
 ## Features
 
 - Fuzzy search across your vault, ranked by relevance
+- Search by frontmatter aliases, with the full file name always shown
 - Daily notes included, resolved from your daily-notes settings
 - Today's daily note pinned on top, opened or created with one Enter
 - Support for bases and canvas files as well
