@@ -256,8 +256,21 @@ def aliases_for(raw):
     except OSError:
         return []
     return extract_aliases(head)
+MAX_STDIN_BYTES = 2097152
+MAX_ROWS = 10000
+data = bytearray()
+while len(data) < MAX_STDIN_BYTES:
+    chunk = sys.stdin.buffer.read(min(65536, MAX_STDIN_BYTES - len(data)))
+    if not chunk:
+        break
+    data += chunk
+records = bytes(data).split(b"\0")
+if len(data) >= MAX_STDIN_BYTES:
+    records = records[:-1]
 rows = []
-for raw in sys.stdin.buffer.read().split(b"\0"):
+for raw in records:
+    if len(rows) >= MAX_ROWS:
+        break
     if not raw or b"\n" in raw or b"\r" in raw:
         continue
     in_daily = under(raw, daily)

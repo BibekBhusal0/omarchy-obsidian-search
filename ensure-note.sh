@@ -19,6 +19,16 @@ while true; do
   rest="${rest#*/}"
 done
 
+p="${vault%/}"
+rest="$rel"
+while true; do
+  seg="${rest%%/*}"
+  p="$p/$seg"
+  [[ ! -L "$p" ]] || exit 1
+  [[ "$rest" == */* ]] || break
+  rest="${rest#*/}"
+done
+
 vault_canon="$(/usr/bin/realpath -m -- "$vault")" || exit 1
 [[ -n "$vault_canon" && "$vault_canon" == /* ]] || exit 1
 dest_canon="$(/usr/bin/realpath -m -- "$vault_canon/$rel")" || exit 1
@@ -26,5 +36,17 @@ dest_canon="$(/usr/bin/realpath -m -- "$vault_canon/$rel")" || exit 1
 
 parent="${dest_canon%/*}"
 /usr/bin/mkdir -p -- "$parent" || exit 1
-[[ -e "$dest_canon" ]] || /usr/bin/touch -- "$dest_canon" || exit 1
+p="$parent"
+while [[ "$p" != "$vault_canon" ]]; do
+  [[ "$p" == "$vault_canon"/* && ! -L "$p" ]] || exit 1
+  [[ -d "$p" ]] || exit 1
+  p="${p%/*}"
+done
+if [[ -e "$dest_canon" ]]; then
+  [[ ! -L "$dest_canon" && -f "$dest_canon" ]] || exit 1
+else
+  set -o noclobber
+  : > "$dest_canon" || exit 1
+  set +o noclobber
+fi
 printf '%s\n' "$dest_canon"

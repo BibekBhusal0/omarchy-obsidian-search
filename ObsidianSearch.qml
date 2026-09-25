@@ -45,6 +45,8 @@ Item {
   property int cardHeight: Math.min(contentMargin * 2 + headerHeight + contentSpacing + rowHeight * Math.min(root.items.length, 9) + Style.space(8), panel.height - Style.gapsOut * 2)
   property int searchSerial: 0
   property bool searchPending: false
+  property int maxSearchBytes: 4194304
+  property int searchTimeoutMs: 15000
 
   function open(payloadJson) {
     root.opened = true;
@@ -79,6 +81,9 @@ Item {
     root.searchSerial += 1;
     searchProc.serial = root.searchSerial;
     searchProc.collected = "";
+    searchProc.collectedBytes = 0;
+    searchProc.overflowed = false;
+    searchProc.timedOut = false;
     root.dailyEnabled = false;
     root.vaultName = "";
     root.vaultPathResolved = "";
@@ -89,6 +94,7 @@ Item {
     args.push("--show-daily=" + (root.cfgBool("showDailyNotes", true) ? "1" : "0"));
     args.push("--show-templates=" + (root.cfgBool("showTemplates", false) ? "1" : "0"));
     searchProc.command = args;
+    searchWatchdog.restart();
     searchProc.running = true;
   }
 
@@ -429,19 +435,79 @@ Item {
     id: displayModel
   }
 
+  function killProc(proc) {
+    try {
+      proc.signal(9);
+    } catch (e) {
+    }
+    proc.running = false;
+  }
+
+  Timer {
+    id: searchWatchdog
+    interval: root.searchTimeoutMs
+    repeat: false
+    onTriggered: {
+      if (searchProc.running) {
+        searchProc.timedOut = true;
+        searchProc.collected = "";
+        searchProc.collectedBytes = 0;
+        root.killProc(searchProc);
+      }
+    }
+  }
+
   Process {
     id: searchProc
     property string collected: ""
+    property int collectedBytes: 0
+    property bool overflowed: false
+    property bool timedOut: false
     property int serial: 0
     stdout: SplitParser {
       onRead: function (data) {
-        searchProc.collected += data + "\n";
+        if (searchProc.overflowed || searchProc.timedOut)
+          return;
+        var chunk = String(data + "\n");
+        if (searchProc.collectedBytes + chunk.length > root.maxSearchBytes) {
+          searchProc.overflowed = true;
+          searchProc.collected = "";
+          searchProc.collectedBytes = 0;
+          root.killProc(searchProc);
+          return;
+        }
+        searchProc.collected += chunk;
+        searchProc.collectedBytes += chunk.length;
+      }
+    }
+    stderr: SplitParser {
+      onRead: function (data) {
+        if (searchProc.overflowed || searchProc.timedOut)
+          return;
+        searchProc.collectedBytes += String(data + "\n").length;
+        if (searchProc.collectedBytes > root.maxSearchBytes) {
+          searchProc.overflowed = true;
+          searchProc.collected = "";
+          searchProc.collectedBytes = 0;
+          root.killProc(searchProc);
+        }
       }
     }
     onExited: {
+      searchWatchdog.stop();
       if (searchProc.serial !== root.searchSerial)
         return;
-      root.allItems = root.parseResults(searchProc.collected);
+      var failed = searchProc.overflowed || searchProc.timedOut;
+      var output = String(searchProc.collected);
+      searchProc.collected = "";
+      searchProc.collectedBytes = 0;
+      searchProc.overflowed = false;
+      searchProc.timedOut = false;
+      if (failed) {
+        root.searchPending = false;
+        return;
+      }
+      root.allItems = root.parseResults(output);
       root.filter();
       if (root.searchPending) {
         root.searchPending = false;
