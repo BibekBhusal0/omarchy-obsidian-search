@@ -755,6 +755,7 @@ Item {
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               text: root.filterText || "Search notes…"
+              textFormat: Text.PlainText
               color: root.foreground
               opacity: root.filterText ? 1 : 0.58
               font.family: root.fontFamily
@@ -811,6 +812,7 @@ Item {
                   Text {
                     width: parent.width
                     text: row.label
+                    textFormat: Text.PlainText
                     color: row.hasCursor ? root.selectedText : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.heading
@@ -820,6 +822,7 @@ Item {
                   Text {
                     width: parent.width
                     text: row.detail
+                    textFormat: Text.PlainText
                     visible: row.detail.length > 0
                     color: row.hasCursor ? root.selectedText : root.foreground
                     opacity: 0.5
@@ -862,6 +865,7 @@ Item {
 
               Text {
                 text: root.filterText ? "No matches for “" + root.filterText + "”" : "No notes found"
+                textFormat: Text.PlainText
                 color: root.foreground
                 opacity: 0.7
                 font.family: root.fontFamily
