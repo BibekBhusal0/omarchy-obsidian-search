@@ -35,18 +35,46 @@ dest_canon="$(/usr/bin/realpath -m -- "$vault_canon/$rel")" || exit 1
 [[ "$dest_canon" == "$vault_canon"/* ]] || exit 1
 
 parent="${dest_canon%/*}"
-/usr/bin/mkdir -p -- "$parent" || exit 1
-p="$parent"
-while [[ "$p" != "$vault_canon" ]]; do
-  [[ "$p" == "$vault_canon"/* && ! -L "$p" ]] || exit 1
-  [[ -d "$p" ]] || exit 1
-  p="${p%/*}"
-done
-if [[ -e "$dest_canon" ]]; then
-  [[ ! -L "$dest_canon" && -f "$dest_canon" ]] || exit 1
-else
-  set -o noclobber
-  : > "$dest_canon" || exit 1
-  set +o noclobber
-fi
-printf '%s\n' "$dest_canon"
+[[ "$parent" == "$vault_canon" || "$parent" == "$vault_canon"/* ]] || exit 1
+
+exec /usr/bin/python3 - "$vault_canon" "$rel" <<'EOF'
+import os
+import stat
+import sys
+
+vault, rel = sys.argv[1], sys.argv[2]
+segs = rel.split("/")
+try:
+    dfd = os.open(vault, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+except OSError:
+    sys.exit(1)
+try:
+    for seg in segs[:-1]:
+        try:
+            os.mkdir(seg, 0o777, dir_fd=dfd)
+        except FileExistsError:
+            pass
+        try:
+            nfd = os.open(seg, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, 0o777, dir_fd=dfd)
+        except OSError:
+            sys.exit(1)
+        os.close(dfd)
+        dfd = nfd
+    base = segs[-1]
+    try:
+        fd = os.open(base, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666, dir_fd=dfd)
+        os.close(fd)
+    except FileExistsError:
+        try:
+            fd = os.open(base, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+        except OSError:
+            sys.exit(1)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                sys.exit(1)
+        finally:
+            os.close(fd)
+    sys.stdout.write(vault + "/" + "/".join(segs) + "\n")
+finally:
+    os.close(dfd)
+EOF
