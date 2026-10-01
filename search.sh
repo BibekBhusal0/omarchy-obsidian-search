@@ -74,10 +74,50 @@ done
 [[ "$show_templates" == "1" || "$show_templates" == "true" ]] && show_templates=1 || show_templates=0
 
 vault_path="${vault_path/#\~/$home}"
+# obsidian.json is rewritten live by the app; retry so a concurrent partial
+# write doesn't fail the lookup.
+obsidian_vault_paths() {
+  local attempt out
+  for attempt in 1 2 3 4 5; do
+    out="$(jq -r '.vaults // {} | to_entries[].value.path // empty' "$vault_config" 2>/dev/null)" && [[ -n "$out" ]] && {
+      printf '%s\n' "$out"
+      return 0
+    }
+    sleep 0.05
+  done
+  return 1
+}
+if [[ -n "$vault_path" && ! -d "$vault_path" && -f "$vault_config" ]]; then
+  want_base="$(basename "$vault_path")"
+  while IFS= read -r cand; do
+    [[ -n "$cand" ]] || continue
+    cand="${cand/#\~/$home}"
+    if [[ "$(basename "$cand")" == "$want_base" && -d "$cand" ]]; then
+      vault_path="$cand"
+      break
+    fi
+  done < <(obsidian_vault_paths)
+  if [[ ! -d "$vault_path" ]]; then
+    want_lower="${want_base,,}"
+    while IFS= read -r cand; do
+      [[ -n "$cand" ]] || continue
+      cand="${cand/#\~/$home}"
+      cand_base="$(basename "$cand")"
+      if [[ "${cand_base,,}" == "$want_lower" && -d "$cand" ]]; then
+        vault_path="$cand"
+        break
+      fi
+    done < <(obsidian_vault_paths)
+  fi
+fi
 if [[ -z "$vault_path" ]]; then
   [[ -f "$vault_config" ]] || exit 0
   vault_path="$(jq -r '.vaults | to_entries | .[0].value.path' "$vault_config" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   vault_path="${vault_path/#\~/$home}"
+fi
+# Never run cwd-relative: an unresolved name would list wrong paths and a
+if [[ -n "$vault_path" && "$vault_path" != /* ]]; then
+  exit 0
 fi
 [[ -n "$vault_path" && -d "$vault_path" ]] || exit 0
 
@@ -101,7 +141,7 @@ daily_enabled=0
 
 periodic_data="$obsidian_dir/plugins/periodic-notes/data.json"
 if [[ -f "$periodic_data" ]]; then
-  p_enabled="$(jq -r '.daily.enabled // true' "$periodic_data" 2>/dev/null)"
+  p_enabled="$(jq -r '.daily.enabled | if . == null then true else . end' "$periodic_data" 2>/dev/null)"
   p_folder="$(jq -r '.daily.folder // empty' "$periodic_data" 2>/dev/null)"
   p_format="$(jq -r '.daily.format // empty' "$periodic_data" 2>/dev/null)"
   if is_truthy "$p_enabled" && [[ -n "$p_folder" || -n "$p_format" ]]; then
@@ -113,7 +153,7 @@ fi
 if [[ "$daily_enabled" -eq 0 ]]; then
   core_enabled="true"
   if [[ -f "$obsidian_dir/core-plugins.json" ]]; then
-    core_enabled="$(jq -r '."daily-notes" // true' "$obsidian_dir/core-plugins.json" 2>/dev/null || echo true)"
+    core_enabled="$(jq -r 'if type == "object" and has("daily-notes") then .["daily-notes"] else true end' "$obsidian_dir/core-plugins.json" 2>/dev/null || echo true)"
   fi
   if is_truthy "$core_enabled"; then
     daily_enabled=1

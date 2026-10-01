@@ -20,6 +20,7 @@ Item {
   property var allItems: []
   property string vaultName: ""
   property string vaultPathResolved: ""
+  property string payloadVaultPath: ""
   property bool dailyEnabled: false
   property bool configReady: false
   property var pendingLaunch: []
@@ -49,6 +50,14 @@ Item {
   property int searchTimeoutMs: 15000
 
   function open(payloadJson) {
+    var payload = ({});
+    try {
+      payload = JSON.parse(payloadJson || "{}");
+    } catch (e) {
+      payload = ({});
+    }
+    var nextVault = payload.vaultPath || payload.vault || payload.vaultName || "";
+    root.payloadVaultPath = String(nextVault || "");
     root.opened = true;
     root.filterText = "";
     root.selectedIndex = 0;
@@ -56,8 +65,7 @@ Item {
     root.disarmPointer();
     root.loadConfig();
     root.filter();
-    if (!searchProc.running)
-      root.runSearch();
+    root.runSearch();
     Qt.callLater(function () {
         keyCatcher.forceActiveFocus();
       });
@@ -72,6 +80,21 @@ Item {
       root.close();
     else
       root.open("{}");
+  }
+
+  function expandHome(path) {
+    var p = String(path || "");
+    if (p === "~")
+      return Quickshell.env("HOME");
+    if (p.indexOf("~/") === 0)
+      return Quickshell.env("HOME") + p.slice(1);
+    return p;
+  }
+
+  function effectiveVaultPath() {
+    if (root.payloadVaultPath)
+      return root.expandHome(root.payloadVaultPath);
+    return root.expandHome(root.cfg("vaultPath", ""));
   }
 
   function runSearch() {
@@ -89,7 +112,7 @@ Item {
     root.vaultName = "";
     root.vaultPathResolved = "";
     var args = [root.searchScript];
-    var vaultPath = root.cfg("vaultPath", "");
+    var vaultPath = root.effectiveVaultPath();
     if (vaultPath)
       args.push(vaultPath);
     args.push("--show-daily=" + (root.cfgBool("showDailyNotes", true) ? "1" : "0"));
@@ -448,9 +471,7 @@ Item {
   function vaultBase() {
     var base = root.vaultPathResolved;
     if (!base) {
-      base = root.cfg("vaultPath", "");
-      if (base.indexOf("~/") === 0)
-        base = Quickshell.env("HOME") + base.slice(1);
+      base = root.effectiveVaultPath();
     }
     if (!base || base.charAt(0) !== "/")
       return "";
